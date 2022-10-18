@@ -34,6 +34,7 @@ def gradient(node):
             continue
 
         current_adjoint = adjoint[current_node.name]
+        adjoint[current_node.name] = 0
         current_op = current_node.opname
 
         op_grad = getattr(grads, '{}_grad'.format(current_op))

@@ -90,10 +90,11 @@ def visualize_AD(node, figsize=None):
     parameters_dict = {
         'var_names': var_names,
         'nx_graph': nx_graph,
-        'adjoint': defaultdict(int), # true if the next call of animate is handeling operand_b
+        'adjoint': defaultdict(int),
+        'display_adjoint': defaultdict(int),
         'queue': NodesQueue(),
         'current_node': None,
-        'other_operand': False,
+        'other_operand': False,  # true if the next call of animate is handeling operand_b
         'grads_annotations': {}
     }
     parameters_dict['adjoint'][node.name] = ConstantNode.create_using(np.ones(node.shape))
@@ -194,29 +195,34 @@ def visualize_AD(node, figsize=None):
             the index of the operand node
         """
 
+        if isinstance(prev, ConstantNode):
+           return "Constant operand\nNo derivatives to propagate"
+
         current_adjoint = params['adjoint'][current.name]
         current_op = current.opname
 
         op_grad = getattr(grads, '%s_grad' % (current_op))
         next_adjoints = op_grad(current_adjoint, current)
 
+        gradient = 0
+        if next_adjoints[indx] != 0:
+            gradient = next_adjoints[indx] / current_adjoint
+
         params['adjoint'][prev.name] = params['adjoint'][prev.name] + next_adjoints[indx]
+        params['display_adjoint'][(prev.name, current.name)] = gradient
 
         chain_txt = ""
 
-        if not isinstance(prev, ConstantNode):
-            chain_txt += node_grad(current, indx) + "\n"
-            chain_txt += "$\\frac{\partial f}{\partial %s} \/ += \/ \\frac{\partial f}{\partial %s}\\frac{\partial %s}{\partial %s} = %.4s\\times%.4s=%.4s$" % (
-                    prev.name,
-                    current.name,
-                    current.name,
-                    prev.name,
-                    current_adjoint,
-                    next_adjoints[indx] / current_adjoint,
-                    next_adjoints[indx]
-            )
-        else:
-            chain_txt = "Constant operand\nNo derivatives to propagate"
+        chain_txt += node_grad(current, indx) + "\n"
+        chain_txt += "$\\frac{\partial f}{\partial %s} \/ += \/ \\frac{\partial f}{\partial %s}\\frac{\partial %s}{\partial %s} = %.4s\\times%.4s=%.4s$" % (
+                prev.name,
+                current.name,
+                current.name,
+                prev.name,
+                current_adjoint,
+                next_adjoints[indx] / current_adjoint,
+                next_adjoints[indx]
+        )
 
         return chain_txt
 
@@ -225,15 +231,17 @@ def visualize_AD(node, figsize=None):
         edge_labels = {}
         graph = params.get("nx_graph")
         adjoints = params.get("adjoint")
+        display_adjoints = params.get("display_adjoint")
 
         for node in graph.nodes():
             if node in adjoints:
                 actual_node = name_to_node.get(node)
                 if isinstance(actual_node, VariableNode) or isinstance(actual_node, ConstantNode):
                     continue
-                edge_labels[(actual_node.operand_a.name, actual_node.name)] = "$%.4s$" % (adjoints.get(node))
-                if actual_node.operand_b is not None:
-                    edge_labels[(actual_node.operand_b.name, actual_node.name)] = "$%.4s$" % (adjoints.get(node))
+                if not isinstance(actual_node.operand_a, ConstantNode):
+                    edge_labels[(actual_node.operand_a.name, actual_node.name)] = "$%.4s$" % (display_adjoints.get((actual_node.operand_a.name, actual_node.name)))
+                if actual_node.operand_b is not None and not isinstance(actual_node.operand_b, ConstantNode):
+                    edge_labels[(actual_node.operand_b.name, actual_node.name)] = "$%.4s$" % (display_adjoints.get((actual_node.operand_b.name, actual_node.name)))
 
         return edge_labels
 
@@ -333,6 +341,8 @@ def visualize_AD(node, figsize=None):
 
             if current_node.operand_b is not None:
                 params['other_operand'] = True
+            else:
+                params['adjoint'][current_node.name] = 0
         elif len(params['queue']) > 0:
             current_node = params['current_node']
             params['current_edge'] = (current_node.operand_b.name, current_node.name)
@@ -345,8 +355,11 @@ def visualize_AD(node, figsize=None):
                 params['queue'].push(current_node.operand_b)
 
             params['other_operand'] = False  # reset the flag after processing
+            params['adjoint'][current_node.name] = 0
         else:
             return []
+
+        edge_labels = update_edge_labels(params)
 
         update_figure(params, chain_txt_buff, edge_labels)
         params['current_edge'] = None

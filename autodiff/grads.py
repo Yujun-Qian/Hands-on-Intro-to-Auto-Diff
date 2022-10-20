@@ -121,7 +121,7 @@ def unbroadcast_adjoint(node, adjoint):
             summation_dims = tuple(range(dimensions_diff))
             correct_adjoint = cg.sum(adjoint, axis=summation_dims)
 
-            originally_ones = tuple([axis  for axis, size in enumerate(node.shape) if size == 1])
+            originally_ones = tuple([axis for axis, size in enumerate(node.shape) if size == 1])
             if len(originally_ones) != 0:
                 correct_adjoint = cg.sum(correct_adjoint, axis=axis, keepdims=True)
 
